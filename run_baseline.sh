@@ -1,0 +1,1 @@
+python supplementary_files/baseline.py --data_dir=DataChallenge_resnet_only/ --num_runs=10
