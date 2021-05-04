@@ -1,13 +1,8 @@
 /.ipynb_checkpoints
 /.tmp
-/DataChallenge_resnet_only
+/other
 /Downloads
 /data
-/main.aux
-/main.fdb_latexmk
-/main.fls
-/main.log
-/main.pdf
-/main.synctex.gz
-/main.tex
 /runs
+*.npy
+test.ipynb

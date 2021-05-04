@@ -1,0 +1,34 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{Owkin challenge}
+\author{ }
+\date{April 2021}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+\paragraph{Goal}
+Weakly supervised binary classification: predict whether a patient has any metastase in its lymph node or not given its slide.
+
+\paragraph{Data description}
+One slide per patient. \\
+Weakly supervision at the slide level and local labels at tile level.\\
+279 training slides
+
+
+\paragraph{Chowder Implementation}
+As explained in the paper in section 2.3, at Feature Embedding paragraph, we implement the feature processing starting from the provided pre-computed resnet features. 
+Given the 1000x2048 features from all the tiles obtained using the ResNet50, we use a convolution of kernel 1 and input channels of 2048 to reduce the dimension of the features from 1000x2048 to 1000.
+
+
+Since we don't have always 1000 tiles per slide, and given that we need to batch slides by 10 as indicated in the implementation details, we pad the tiles by replicating them until having 1000 ones.
+
+
+
+% First implementation of chowder leads to AUC: mean 0.714, std 0.0266
+%AUC: mean 0.71, std 0.09980824066332905
+\end{document}
