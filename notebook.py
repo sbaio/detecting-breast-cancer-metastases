@@ -12,10 +12,8 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from tensorboardX import SummaryWriter
-import sklearn
-import sklearn.metrics
-import sklearn.model_selection
-import copy
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedKFold
 from tqdm import tqdm
 
 
@@ -25,8 +23,8 @@ now = datetime.now()
 dt_string = now.strftime("%m%d_%H%M")
 outdir = Path(f"runs/{dt_string}/")
 print(outdir)
-num_runs = 0#3#10
-num_splits = 5
+num_runs = 5#10
+num_splits = 3#5
 
 def get_features(path, ntiles=1000):
     x = np.load(path)[:,3:]
@@ -165,7 +163,6 @@ def fit_and_score(train_dset, val_dset=None, run=0):
     if val_dset is not None:
         val_loader = torch.utils.data.DataLoader(val_dset, batch_size=10, shuffle=False, drop_last=False)
 
-    # model = copy.deepcopy(model_).cuda()
     model = Model().cuda()
     init_weights(model, init_type='kaiming', init_gain=0.02)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -187,7 +184,7 @@ def fit_and_score(train_dset, val_dset=None, run=0):
             all_preds.append(out['probs'].cpu().numpy())
         all_targets = np.concatenate(all_targets)
         all_preds = np.concatenate(all_preds)
-        auc = sklearn.metrics.roc_auc_score(all_targets, all_preds)
+        auc = roc_auc_score(all_targets, all_preds)
 
         return auc
 
@@ -248,7 +245,7 @@ dset = Dataset()
 aucs = []
 for seed in range(num_runs):
     # create new model
-    cv = sklearn.model_selection.StratifiedKFold(n_splits=num_splits, shuffle=True,random_state=seed)
+    cv = StratifiedKFold(n_splits=num_splits, shuffle=True,random_state=seed)
 
     targets = dset.training_output['Target'].tolist()
 
@@ -283,13 +280,13 @@ if len(aucs):
 E = 10
 print("Training final model on the whole dataset")
 for e in tqdm(range(E)):
-    break
+    # break
     # Train on the full training set
     label = f'final_{e}'
     _ = fit_and_score(dset, val_dset=None, run=label)
     
 # Prediction on the test set
-outdir = Path(f"runs/0504_2138/")
+# outdir = Path(f"runs/0504_2138/")
 print(f"Predicting on the test set using ckpts from {outdir}")
 test_dset = TestDataset()
 loader = torch.utils.data.DataLoader(test_dset, batch_size=len(test_dset), shuffle=False)

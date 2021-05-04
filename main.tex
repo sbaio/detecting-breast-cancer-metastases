@@ -12,7 +12,7 @@
 \section{Introduction}
 
 \paragraph{Goal}
-Weakly supervised binary classification: predict whether a patient has any metastase in its lymph node or not given its slide.
+The goal in this challenge is to score patient slides to detect cancer metastasis in its lymph nodes, using a weakly supervised  binary classification approach.
 
 \paragraph{Data description}
 One slide per patient. \\
@@ -22,12 +22,13 @@ Weakly supervision at the slide level and local labels at tile level.\\
 
 \paragraph{Chowder Implementation}
 As explained in the paper in section 2.3, at Feature Embedding paragraph, we implement the feature processing starting from the provided pre-computed resnet features. 
-Given the 1000x2048 features from all the tiles obtained using the ResNet50, we use a convolution of kernel 1 and input channels of 2048 to reduce the dimension of the features from 1000x2048 to 1000.
-
+Given the 1000x2048 features from all the tiles obtained using the ResNet50, we use a convolution of kernel 1 and input channels of 2048 to reduce the dimension of the features from 1000x2048 to 1000 dimension feature.
 
 Since we don't have always 1000 tiles per slide, and given that we need to batch slides by 10 as indicated in the implementation details, we pad the tiles by replicating them until having 1000 ones.
 
 
+\paragraph{Importance of initialization}
+We observe a high variance in training the chowder model when using the default pytorch layer initialization kaiming uniform. Instead we use
 Initialization is important, there is a large variance given the same training data..
 Kaiming initialization 0.002!!!
 
