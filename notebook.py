@@ -6,6 +6,7 @@ import os
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import init
 from glob import glob
 import pandas as pd
 from pathlib import Path
@@ -15,12 +16,17 @@ import sklearn
 import sklearn.metrics
 import sklearn.model_selection
 import copy
+from tqdm import tqdm
+
 
 data_dir = Path("data/")
 train_tile_annotations = pd.read_csv(data_dir / "train_input/train_tile_annotations.csv")
 now = datetime.now()
 dt_string = now.strftime("%m%d_%H%M")
 outdir = Path(f"runs/{dt_string}/")
+print(outdir)
+num_runs = 0#3#10
+num_splits = 5
 
 def get_features(path, ntiles=1000):
     x = np.load(path)[:,3:]
@@ -69,6 +75,37 @@ class TestDataset():
     def __len__(self):
         return len(self.test_features_paths)
 
+def init_weights(net, init_type='normal', init_gain=0.02):
+    """Initialize network weights.
+    Parameters:
+        net (network)   -- network to be initialized
+        init_type (str) -- the name of an initialization method: normal | xavier | kaiming | orthogonal
+        init_gain (float)    -- scaling factor for normal, xavier and orthogonal.
+    We use 'normal' in the original pix2pix and CycleGAN paper. But xavier and kaiming might
+    work better for some applications. Feel free to try yourself.
+    """
+    def init_func(m):  # define the initialization function
+        classname = m.__class__.__name__
+        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+            if init_type == 'normal':
+                init.normal_(m.weight.data, 0.0, init_gain)
+            elif init_type == 'xavier':
+                init.xavier_normal_(m.weight.data, gain=init_gain)
+            elif init_type == 'kaiming':
+                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+            elif init_type == 'orthogonal':
+                init.orthogonal_(m.weight.data, gain=init_gain)
+            else:
+                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
+            if hasattr(m, 'bias') and m.bias is not None:
+                init.constant_(m.bias.data, 0.0)
+        elif classname.find('BatchNorm2d') != -1:  # BatchNorm Layer's weight is not a matrix; only normal distribution applies.
+            init.normal_(m.weight.data, 1.0, init_gain)
+            init.constant_(m.bias.data, 0.0)
+
+    print('initialize network with %s' % init_type)
+    net.apply(init_func)  # apply the initialization function <init_func>
+
 class Model(nn.Module):
     def __init__(self):
         super().__init__()
@@ -78,10 +115,10 @@ class Model(nn.Module):
         self.R = 5
         self.mlp = nn.Sequential(
             nn.Linear(2*self.R, 200),
-            nn.Sigmoid(),
+            nn.Sigmoid(),#nn.ReLU(),#
             nn.Dropout(p=0.5),
             nn.Linear(200, 100),
-            nn.Sigmoid(),
+            nn.Sigmoid(),#nn.ReLU(),#
             nn.Dropout(p=0.5),
             nn.Linear(100, 1),
         )
@@ -115,32 +152,27 @@ class Model(nn.Module):
         if targets is not None:
             # compute loss
             loss = self.BCELossWithLogits(logits, targets[:,None].float())
-            # loss += 0.5 * self.conv1x1.weight.norm(2) # Add L2 regularization
-            loss += 0.5 * self.conv1x1.weight.pow(2).sum() # Add L2 regularization
+            out['bceloss'] = loss
+            reg = 0.5 * self.conv1x1.weight.pow(2).sum() # Add L2 regularization
+            loss += reg
             out['loss'] = loss
+            out['reg'] = reg
             
         return out
 
-
-# In[6]:
-
-
-dset = Dataset()
-model_ = Model()
-
-
-# # TODO: data augmentation ?
-
 def fit_and_score(train_dset, val_dset=None, run=0):
-    train_loader = torch.utils.data.DataLoader(train_dset, batch_size=10, shuffle=True, drop_last=True)
+    train_loader = torch.utils.data.DataLoader(train_dset, batch_size=10, shuffle=True, drop_last=True, num_workers=8)
     if val_dset is not None:
         val_loader = torch.utils.data.DataLoader(val_dset, batch_size=10, shuffle=False, drop_last=False)
 
-    model = copy.deepcopy(model_).cuda()
+    # model = copy.deepcopy(model_).cuda()
+    model = Model().cuda()
+    init_weights(model, init_type='kaiming', init_gain=0.02)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30)
 
     # Train loop
-    nepochs = 30
+    nepochs = 40#30
 
     def validate():
         model.eval()
@@ -163,7 +195,7 @@ def fit_and_score(train_dset, val_dset=None, run=0):
 
     iteration = 0
     best_auc = 0
-    for epoch in range(nepochs):
+    for epoch in tqdm(range(nepochs)):
         model.train()
         for feats, targets in train_loader:
             feats = feats.cuda()
@@ -173,16 +205,20 @@ def fit_and_score(train_dset, val_dset=None, run=0):
             optimizer.zero_grad()
             out['loss'].backward()
             optimizer.step()
-
+            
             writer.add_scalar("Train/loss", out['loss'], iteration)
+            writer.add_scalar("Train/reg", out['reg'], iteration)
+            writer.add_scalar("Train/bceloss", out['bceloss'], iteration)
+            writer.add_scalar("Train/lr", optimizer.param_groups[0]['lr'], iteration)
             iteration += 1
+        # scheduler.step()
 
         if val_dset is None:
             continue
 
         # validate and keep the best at each epoch
         auc = validate()
-        writer.add_scalar("Val/AUC", auc, iteration)
+        writer.add_scalar("Val/AUC", auc, epoch)
         
         if auc > best_auc:
             best_auc = auc
@@ -207,12 +243,7 @@ def fit_and_score(train_dset, val_dset=None, run=0):
     return best_auc
 
 
-# In[3]:
-
-
-
-num_runs = 10
-num_splits = 5
+dset = Dataset()
 
 aucs = []
 for seed in range(num_runs):
@@ -222,6 +253,12 @@ for seed in range(num_runs):
     targets = dset.training_output['Target'].tolist()
 
     cv_aucs = []
+    # for i in range(1):
+    #     inds = list(range(len(dset)))
+    #     nval = int(len(dset)/10)
+    #     train_dset = torch.utils.data.Subset(dset, inds[nval:])
+    #     val_dset = torch.utils.data.Subset(dset, inds[:nval])
+
     for i, (train_inds, val_inds) in enumerate(cv.split(dset, y=targets)):
         train_dset = torch.utils.data.Subset(dset, train_inds)
         val_dset = torch.utils.data.Subset(dset, val_inds)
@@ -234,53 +271,67 @@ for seed in range(num_runs):
     aucs.append(cv_aucs)
 
 aucs = np.array(aucs)
-
-print("Predicting weak labels using Chowder")
-print("AUC: mean {}, std {}".format(aucs.mean(), aucs.std()))
-
-
-# In[22]:
+if len(aucs):
+    print("Predicting weak labels using Chowder")
+    print("AUC: mean {}, std {}".format(aucs.mean(), aucs.std()))
 
 
-# generate the submission file
+# Generate the submission file
 
 # -------------------------------------------------------------------------
+# ensemble multiple models
+E = 10
+print("Training final model on the whole dataset")
+for e in tqdm(range(E)):
+    break
+    # Train on the full training set
+    label = f'final_{e}'
+    _ = fit_and_score(dset, val_dset=None, run=label)
+    
 # Prediction on the test set
-
-# Train a final model on the full training set
-train_dset = dset
-label = 'final'
-print("Training final model")
-_ = fit_and_score(train_dset, val_dset=None, run=label)
-model = Model()
-ckpt = torch.load(outdir / f'run_{label}/model_final.pth')
-model.load_state_dict(ckpt['model'])
-model = model.cuda().eval()
-
+outdir = Path(f"runs/0504_2138/")
+print(f"Predicting on the test set using ckpts from {outdir}")
 test_dset = TestDataset()
-
 loader = torch.utils.data.DataLoader(test_dset, batch_size=len(test_dset), shuffle=False)
+test_feats, test_IDs = iter(loader).next()
 
-feats, IDs = iter(loader).next()
+all_preds = []
+model = Model()
+init_weights(model, init_type='kaiming', init_gain=0.02)
 
-# load test features
-with torch.no_grad():
-    preds_test = model(feats.cuda())['probs'].cpu().numpy()[:,0]
+for e in tqdm(range(E)):
+    label = f'final_{e}'
+    ckpt = torch.load(outdir / f'run_{label}/model_final.pth')
+    model.load_state_dict(ckpt['model'])
+    model = model.cuda().eval()
 
-print(preds_test.shape)
+    # load test features
+    with torch.no_grad():
+        preds_test = model(test_feats.cuda())['probs'].cpu().numpy()[:,0]
 
-# Check that predictions are in [0, 1]
-assert np.max(preds_test) <= 1.0
-assert np.min(preds_test) >= 0.0
+    # Check that predictions are in [0, 1]
+    assert np.max(preds_test) <= 1.0
+    assert np.min(preds_test) >= 0.0
+
+    all_preds.append(preds_test)
+    # break
+
+all_preds = np.stack(all_preds)
+print(all_preds.shape)
+print(np.transpose(all_preds[:,:10], (1,0)))
+all_preds = all_preds.mean(0)
+print(all_preds.shape)
 
 # -------------------------------------------------------------------------
 # Write the predictions in a csv file, to export them in the suitable format
 # to the data challenge platform
-test_output = pd.DataFrame({"ID": IDs, "Target": preds_test})
+test_output = pd.DataFrame({"ID": test_IDs, "Target": preds_test})
 test_output.set_index("ID", inplace=True)
-test_output.to_csv(data_dir / "preds_test_chowder.csv")
+test_output.to_csv(outdir / "preds_test_chowder.csv")
 
 
 
 # use the annotated tiles from data/train_input/train_tile_annotation.csv to compare tumoral and non tumoral tiles.
 
+
+# # TODO: data augmentation ?

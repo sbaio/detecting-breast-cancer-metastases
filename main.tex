@@ -28,9 +28,13 @@ Given the 1000x2048 features from all the tiles obtained using the ResNet50, we 
 Since we don't have always 1000 tiles per slide, and given that we need to batch slides by 10 as indicated in the implementation details, we pad the tiles by replicating them until having 1000 ones.
 
 
+Initialization is important, there is a large variance given the same training data..
+Kaiming initialization 0.002!!!
 
 % Difficulty: highly localized diseased regions
 
-% First implementation of chowder leads to AUC: mean 0.714, std 0.0266
-%AUC: mean 0.71, std 0.0998
+% Chowder
+% AUC: mean 0.8372935352126236, std 0.0970
+
+% Submission: 0504_2138, 0.786
 \end{document}
