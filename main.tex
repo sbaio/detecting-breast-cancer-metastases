@@ -37,5 +37,17 @@ Kaiming initialization 0.002!!!
 % Chowder
 % AUC: mean 0.8372935352126236, std 0.0970
 
+
+% Validation (5 runs of 3-fold CV) AUC: mean 0.81, std 0.1077
 % Submission: 0504_2138, 0.786
+
+\paragraph{Using local annotations}
+We are provided with local annotations for 10124 tiles (9417 benign and 707 malignant).
+
+We train a binary classifier on this labelled dataset by balancing both classes to have almost same number of positive and negative samples in a batch during training.
+
+We calculate the mean and the std on all images.
+
+The locally annotated tiles can be augmented with globally annotated slides. By considering all benign slides, we are sure that no tile is malign. 
+
 \end{document}
